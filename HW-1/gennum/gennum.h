@@ -8,5 +8,6 @@
 
 void generateInt(int m, int n);
 void generateDecimal(int m, int n);
+void generateBinary(int m, int n);
 
 #endif

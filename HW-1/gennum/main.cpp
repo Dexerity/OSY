@@ -6,7 +6,7 @@
 int main(int argc, char *argv[]) 
 {
     int n, m;
-    bool decimal = false;
+    bool decimal = false, binary = false;
 
     if (argc == 3)
     {
@@ -21,10 +21,16 @@ int main(int argc, char *argv[])
         {
             decimal = true;
         }
+        else if(strcmp(argv[3], "-b") == 0)
+        {
+            binary = true;
+        }
     }
 
     if(decimal)
         generateDecimal(m, n);
+    else if(binary)
+        generateBinary(m, n);
     else
         generateInt(m, n);
 
