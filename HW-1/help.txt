@@ -1,0 +1,8 @@
+compilation
+    static
+        g++ main.cpp -L./gennum -lgennum -o main
+    
+    dynamic
+        g++ main.cpp -L./vernumint -lvernum -o main
+        export LD_LIBRARY_PATH=./vernumint:$LD_LIBRARY_PATH
+        export LD_LIBRARY_PATH=./vernumfloat:$LD_LIBRARY_PATH
