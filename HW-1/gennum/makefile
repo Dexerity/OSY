@@ -11,7 +11,7 @@ all: $(TARGET)
 clean:
 	rm -f $(TARGET) $(LIBFILE) *.o
 
-$(LIBFILE): genint.o genfloat.o
+$(LIBFILE): genint.o genfloat.o genbinary.o
 	ar r $@ $^
 	@echo "Library build complete"
 
