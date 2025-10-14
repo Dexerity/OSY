@@ -1,4 +1,4 @@
-#include "vernum.h"
+#include "../inc/vernum.h"
 
 int main(int argc, char *argv[]) 
 {
