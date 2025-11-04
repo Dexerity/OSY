@@ -28,7 +28,6 @@
 #include <errno.h>
 #include <semaphore.h>
 #include <vector>
-#include <string>
 #include <pthread.h>
 
 #define STR_CLOSE   "close"
@@ -36,7 +35,7 @@
 
 #define BUFFER_SIZE 100
 
-std::vector<std::string> buffer;
+std::vector<char*> buffer;
 
 sem_t *g_sem_empty = nullptr;
 sem_t *g_sem_full = nullptr;
@@ -44,26 +43,37 @@ sem_t *g_sem_mutex = nullptr;
 
 //***************************************************************************
 
-void producer(std::string *item)
+void producer(char* item)
 {
     sem_wait(g_sem_empty);
     sem_wait(g_sem_mutex);
 
-    buffer.push_back(*item);
-    printf("[SRV] Produced: %s\n", item->c_str());
+    char *copy = strdup(item);
+    
+    if (copy == nullptr) 
+    {
+        sem_post(g_sem_mutex);
+        sem_post(g_sem_empty);
+        return;
+    }
+
+    buffer.push_back(copy);
+    printf("[SRV] Produced: %s\n", copy);
 
     sem_post(g_sem_mutex);
     sem_post(g_sem_full);
 }
 
-void consumer(std::string *item)
+void consumer(char* item)
 {
     sem_wait(g_sem_full);
     sem_wait(g_sem_mutex);
 
-    *item = buffer.front();
+    strcpy(item, buffer.front());
+    free(buffer.front());
     buffer.erase(buffer.begin());
-    printf("[SRV] Consumed: %s\n", item->c_str());
+
+    printf("[SRV] Consumed: %s\n", item);
 
     sem_post(g_sem_mutex);
     sem_post(g_sem_empty);
@@ -87,16 +97,12 @@ void* producer_client(void* arg)
 
         buf[len] = '\0';
 
-
-        std::string item(buf);
-        item.erase(item.find_last_not_of(" \n\r\t") + 1);
-
-        if (item == STR_CLOSE || item == STR_QUIT)
+        if (strcmp(buf, STR_CLOSE) == 0 || strcmp(buf, STR_QUIT) == 0)
             break;
 
-
-        producer(&item);
+        producer(buf);
         write(sock, "OK\n", 3);
+        buf[0] = '\0';
     }
 
     close(sock);
@@ -116,17 +122,19 @@ void* consumer_client(void* arg)
         if(buffer.empty())
             break;
 
-        std::string item;
-        consumer(&item);
-        item += "\n";
-        write(sock, item.c_str(), item.size());
+        char item[50];
+        consumer(item);
 
-        int len = read(sock, buf, sizeof(buf) - 1);
+        strcat(item, "\n");
+
+        write(sock, item, strlen(item));
+
+        ssize_t len = read(sock, buf, sizeof(buf) - 1);
         if (len <= 0)
             break;
         buf[len] = '\0';
-        std::string response(buf);
-        if (strncmp(response.c_str(), "OK", 2) != 0)
+
+        if (strncmp(buf, "OK\n", 2) != 0)
             break;
     }
 
@@ -151,15 +159,13 @@ void* handle_client(void* arg)
         return nullptr;
     }
 
-    buf[len] = '\0';
-    std::string task(buf);
-    task.erase(task.find_last_not_of(" \n\r\t") + 1);
+    buf[len - 1] = '\0';
 
-    fprintf(stdout, "[SRV] Client task: %s\n", task.c_str());
+    fprintf(stdout, "[SRV] Client task: %s\n", buf);
 
-    if (task == "producer")
+    if (strcmp(buf, "producer") == 0)
         producer_client(arg);
-    else if (task == "consumer")
+    else if (strcmp(buf, "consumer") == 0)
         consumer_client(arg);
     else
         close(sock);
@@ -272,7 +278,7 @@ int main( int t_narg, char **t_args )
         log_msg(LOG_ERROR, "sem_open /sem_mutex failed");
         exit(1);
     }
-    g_sem_mutex = sem_open("/sem_mutex", O_CREAT, 0644, 1);
+
 
 
 
