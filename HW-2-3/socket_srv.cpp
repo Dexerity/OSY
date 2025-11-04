@@ -29,11 +29,12 @@
 #include <semaphore.h>
 #include <vector>
 #include <string>
+#include <pthread.h>
 
 #define STR_CLOSE   "close"
 #define STR_QUIT    "quit"
 
-#define BUFFER_SIZE 5
+#define BUFFER_SIZE 100
 
 std::vector<std::string> buffer;
 
@@ -76,6 +77,8 @@ void* producer_client(void* arg)
     delete (int*)arg;
     char buf[256];
 
+    fprintf(stdout, "[SRV] Producer client started.\n");
+
     while (1)
     {
         int len = read(sock, buf, sizeof(buf) - 1);
@@ -83,11 +86,14 @@ void* producer_client(void* arg)
             break; 
 
         buf[len] = '\0';
+
+
         std::string item(buf);
         item.erase(item.find_last_not_of(" \n\r\t") + 1);
 
         if (item == STR_CLOSE || item == STR_QUIT)
             break;
+
 
         producer(&item);
         write(sock, "OK\n", 3);
@@ -103,8 +109,13 @@ void* consumer_client(void* arg)
     delete (int*)arg;
     char buf[256];
 
+    fprintf(stdout, "[SRV] Consumer client started.\n");
+
     while (1)
     {
+        if(buffer.empty())
+            break;
+
         std::string item;
         consumer(&item);
         item += "\n";
@@ -130,6 +141,8 @@ void* handle_client(void* arg)
     int sock = *((int*)arg);
     write(sock, "Task?\n", 6);
 
+    fprintf(stdout, "[SRV] Waiting for client task...\n");
+
     char buf[256];
     int len = read(sock, buf, sizeof(buf) - 1);
     if (len <= 0)
@@ -141,6 +154,8 @@ void* handle_client(void* arg)
     buf[len] = '\0';
     std::string task(buf);
     task.erase(task.find_last_not_of(" \n\r\t") + 1);
+
+    fprintf(stdout, "[SRV] Client task: %s\n", task.c_str());
 
     if (task == "producer")
         producer_client(arg);
@@ -238,8 +253,25 @@ int main( int t_narg, char **t_args )
         }
     }
 
+    sem_unlink("/sem_empty");
+    sem_unlink("/sem_full");
+    sem_unlink("/sem_mutex");
+
     g_sem_empty = sem_open("/sem_empty", O_CREAT, 0644, BUFFER_SIZE);
+    if (g_sem_empty == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open /sem_empty failed");
+        exit(1);
+    }
     g_sem_full = sem_open("/sem_full", O_CREAT, 0644, 0);
+    if (g_sem_full == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open /sem_full failed");
+        exit(1);
+    }
+    g_sem_mutex = sem_open("/sem_mutex", O_CREAT, 0644, 1);
+    if (g_sem_mutex == SEM_FAILED) {
+        log_msg(LOG_ERROR, "sem_open /sem_mutex failed");
+        exit(1);
+    }
     g_sem_mutex = sem_open("/sem_mutex", O_CREAT, 0644, 1);
 
 
@@ -364,10 +396,13 @@ int main( int t_narg, char **t_args )
 
                 int* client_sock = new int(l_sock_client);
 
+                fprintf(stdout, "[SRV] Client connected, creating thread.\n");
+
                 pthread_t client_thread;
                 pthread_create( &client_thread, nullptr, handle_client, ( void* ) client_sock );
                 pthread_detach( client_thread );
 
+                fprintf(stdout, "[SRV] Thread created.\n");
 
                 break;
             }

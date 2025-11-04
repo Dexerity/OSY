@@ -26,9 +26,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <vector>
+#include <string>
 #include <netdb.h>
+#include <pthread.h>
 
 #define STR_CLOSE               "close"
+
+int producing_speed = 60;
 
 //***************************************************************************
 // log messages
@@ -91,6 +96,116 @@ void help( int t_narg, char **t_args )
     if ( !strcmp( t_args[ 1 ], "-d" ) )
         g_debug = LOG_DEBUG;
 }
+
+//***************************************************************************
+
+void* producer_thread(void* arg)
+{
+    int sock = *((int*)arg);
+    delete (int*)arg;
+    char names[201][20];
+    char* nameFile = "jmena.txt";
+
+    FILE* file = fopen(nameFile, "r");
+    if (file == nullptr)
+    {
+        log_msg( LOG_ERROR, "Unable to open file %s.", nameFile );
+        close(sock);
+        return nullptr;
+    }
+
+    int count = 0;
+    while (fgets(names[count], sizeof(names[count]), file) != nullptr && count < 200)
+    {
+        names[count][strcspn(names[count], "\n")] = '\0';
+        count++;
+    }
+    fclose(file);
+
+    for(int i = 0; i < count; i++)
+    {
+        usleep((60.0 / producing_speed) * 1000000);
+
+        write(sock, names[i], strlen(names[i]));
+
+        char buf[256];
+        ssize_t len = read(sock, buf, sizeof(buf) - 1);
+        if (len <= 0)
+            break;
+
+        buf[len] = '\0';
+
+        if (strncmp(buf, "OK\n", 3) != 0)
+            break;
+    }
+
+    fprintf(stdout, "[CL] Producer thread finished.\n");
+
+    close(sock);
+    return nullptr;
+}
+
+void* consumer_thread(void* arg)
+{
+    int sock = *((int*)arg);
+    delete (int*)arg;
+
+    while (true)
+    {
+        char buf[256];
+        ssize_t len = read(sock, buf, sizeof(buf) - 1);
+        if (len <= 0)
+            break;
+
+        buf[len] = '\0';
+
+        fprintf(stdout, "%s", buf);
+
+        write(sock, "OK\n", 3);
+    }
+
+    fprintf(stdout, "[CL] Consumer thread finished.\n");
+
+    close(sock);
+
+    return nullptr;
+}
+
+
+static int connect_and_send_task(sockaddr_in server_addr, const char* task, ssize_t task_len)
+{
+    int sock = socket( AF_INET, SOCK_STREAM, 0 );
+    if ( sock == -1 )
+    {
+        log_msg( LOG_ERROR, "Unable to create socket." );
+        return -1;
+    }
+
+    if ( connect( sock, ( sockaddr * ) &server_addr, sizeof( server_addr ) ) < 0 )
+    {
+        log_msg( LOG_ERROR, "Unable to connect server." );
+        close(sock);
+        return -1;
+    }
+
+    char l_buf[256];
+    ssize_t l_len = read(sock, l_buf, sizeof(l_buf) - 1);
+    if (l_len > 0)
+    {
+        l_buf[l_len] = '\0';
+        //write(STDOUT_FILENO, l_buf, l_len);
+    }
+
+    if ( write(sock, task, task_len) < 0 )
+    {
+        log_msg( LOG_ERROR, "Unable to write task to server." );
+        close(sock);
+        return -1;
+    }
+
+    return sock;
+}
+
 
 //***************************************************************************
 
@@ -206,15 +321,30 @@ int main( int t_narg, char **t_args )
             else
                 log_msg( LOG_DEBUG, "Read %d bytes from stdin.", l_len );
 
-            // send data to server
-            l_len = write( l_sock_server, l_buf, l_len );
-            if ( l_len < 0 )
+            if(strncmp(l_buf, "producer\n", 9) == 0)
             {
-                log_msg( LOG_ERROR, "Unable to send data to server." );
-                break;
+                int new_sock = connect_and_send_task(l_cl_addr, l_buf, l_len);
+                if (new_sock < 0) continue;
+
+                pthread_t prod_thread;
+                pthread_create(&prod_thread, nullptr, producer_thread, new int(new_sock));
+                pthread_detach(prod_thread);
+
+                continue;
             }
-            else
-                log_msg( LOG_DEBUG, "Sent %d bytes to server.", l_len );
+            else if(strncmp(l_buf, "consumer\n", 9) == 0)
+            {
+                int new_sock = connect_and_send_task(l_cl_addr, l_buf, l_len);
+                if (new_sock < 0) continue;
+
+                pthread_t cons_thread;
+                pthread_create(&cons_thread, nullptr, consumer_thread, new int(new_sock));
+                pthread_detach(cons_thread);
+
+                continue;
+            }
+
+            producing_speed = atoi(l_buf);
         }
 
         // data from server?
