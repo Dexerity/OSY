@@ -103,7 +103,7 @@ int main(int argc, char *argv[]) {
             char* name = strchr(buffer, ' ');
             int nameLength = strlen(name + 1);
             char modified[MAX_NAME_LENGTH + 20];
-            sprintf(modified, "%s (%d)", buffer, nameLength - 1);
+            sprintf(modified, "%s (%d)", buffer, nameLength);
 
             write(pipe3[1], modified, strlen(modified) + 1);
         }
